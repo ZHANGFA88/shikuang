@@ -16,14 +16,14 @@ const provider = await stub((_hit, request) => {
   const output = step === "prefilter" ? { label, reason: "fixture" }
     : step === "score" ? { attentionScore: SELECTING_SCORE }
     : step === "structure" ? { scope: "unknown", category: "model", tags: [], subjects: [], fact: null }
-    : { itemType: "model_release", authorRole: "principal", titleZh: "模型发布", summaryZh: "来源确认模型发布。", bodyZh: "来源确认模型发布。", tags: [], editorialJudgment: "fixture" };
+    : { itemType: "industry_event", authorRole: "principal", titleZh: "行业动态", summaryZh: "来源确认模型发布。", bodyZh: "来源确认模型发布。", tags: [], editorialJudgment: "fixture" };
   return { choices: [{ message: { content: JSON.stringify(output) } }] };
 });
 pointModels(provider.url);
 after(async () => { await provider.close(); await closeDb(); });
 
 const article = (changes: Partial<AnalyzeInputArticle> = {}): AnalyzeInputArticle => ({
-  id: `missing-${tag()}`, revision: 1, title: "模型发布", url: "https://example.org/news", author: null,
+  id: `missing-${tag()}`, revision: 1, title: "行业动态", url: "https://example.org/news", author: null,
   publishedAt: new Date("2026-10-02T00:00:00Z"), bodyStatus: "unconfirmed", bodyText: null,
   excerpt: null, media: [], xPost: null,
   source: { name: "Fixture", kind: "rss", tier: "T1", firstParty: true }, ...changes,
