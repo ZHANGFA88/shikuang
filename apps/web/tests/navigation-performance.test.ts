@@ -57,7 +57,8 @@ const api=createServer((req,res)=>{
   }
   if(p==='/api/site/pool'){
     const page=Number(url.searchParams.get('page')||1);
-    return res.end(JSON.stringify({filters:{channel:'all',category:null,tag:null,q:null,tab:'time'},items:[{...item,title:'全部第 '+page+' 页'}],page,pageCount:3,total:3,todayCount:1,freshness:at}));
+    const category=url.searchParams.get('category');
+    return res.end(JSON.stringify({filters:{channel:'all',category,tag:null,q:null,tab:'time'},items:[{...item,title:category?'分类 '+category:'全部第 '+page+' 页'}],page,pageCount:3,total:3,todayCount:1,freshness:at}));
   }
   if(p==='/api/site/items/navigation-fixture')return res.end(JSON.stringify(detail));
   if(p==='/api/site/items/navigation-fixture/original')return res.end(JSON.stringify({...detail,body:{zh:null,original:'<p>Original fixture</p>',zhKind:null,complete:true},bodyLanguage:'original'}));
@@ -86,27 +87,26 @@ after(async()=>{
 // One engine per behaviour: WebKit for what phone readers do (iPhone Safari), Chromium for desktop-only
 // intent such as hover. The router and caches are the same code in both.
 test('SSR list and visited query variants return offline without another read',async()=>{
-  const context=await safari.newContext({viewport:{width:390,height:844}});
+  // Fork surface: category query variants live on /all; the front page carries no category filter.
+  const context=await safari.newContext({viewport:{width:1280,height:800}});
   const page=await context.newPage();
   try{
-    await page.goto(origin+'/');
-    await expect(page.getByRole('link',{name:'性能检查文章',exact:true})).toBeVisible();
-    await page.getByRole('link',{name:'性能检查文章',exact:true}).click();
+    await page.goto(origin+'/all');
+    await expect(page.getByRole('link',{name:'全部第 1 页',exact:true})).toBeVisible();
+    await page.getByRole('link',{name:'全部第 1 页',exact:true}).click();
     await expect(page.getByText('固定正文',{exact:true})).toBeVisible();
     await context.setOffline(true);
     await page.goBack();
-    await expect(page.getByRole('link',{name:'性能检查文章',exact:true})).toBeVisible({timeout:1500});
+    await expect(page.getByRole('link',{name:'全部第 1 页',exact:true})).toBeVisible({timeout:1500});
     await context.setOffline(false);
-    await page.getByRole('button',{name:/^筛选/}).click();
-    await page.getByRole('link',{name:'模型',exact:true}).click();
+    await page.getByRole('navigation',{name:'筛选'}).getByRole('link',{name:'政策',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 policy',exact:true})).toBeVisible();
-    await page.getByRole('button',{name:/^筛选/}).click();
-    await page.getByRole('link',{name:'产品',exact:true}).click();
+    await page.getByRole('navigation',{name:'筛选'}).getByRole('link',{name:'公司',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 company',exact:true})).toBeVisible();
     await context.setOffline(true);
     await page.goBack();
     await expect(page.getByRole('link',{name:'分类 policy',exact:true})).toBeVisible({timeout:1500});
-    await expect(page.locator('link[rel=canonical]')).toHaveAttribute('href',origin+'/?category=policy');
+    await expect(page.locator('link[rel=canonical]')).toHaveAttribute('href',origin+'/all?category=policy');
   }finally{await context.close();}
 });
 
@@ -117,7 +117,7 @@ test('hover still fetches article data, touches that move do not, and failed pre
     const link=page.getByRole('link',{name:'性能检查文章',exact:true});
     const start=hits.length;
     await link.dispatchEvent('touchstart');await link.dispatchEvent('touchmove');
-    await page.getByRole('heading',{name:'精选',exact:true}).click();
+    await page.getByRole('heading',{name:'总览',exact:true}).click();
     assert.equal(hits.slice(start).filter(x=>x.startsWith('/api/site/items/')).length,0);
     const response=page.waitForResponse(r=>r.url().includes('/items/navigation-fixture.data'));
     await link.hover();await response;
@@ -129,7 +129,7 @@ test('hover still fetches article data, touches that move do not, and failed pre
       await freshPage.goto(origin+'/');failing='/api/site/items/navigation-fixture';
       const failed=freshPage.waitForResponse(r=>r.url().includes('/items/navigation-fixture.data')&&r.status()===503);
       await freshPage.getByRole('link',{name:'性能检查文章',exact:true}).hover();await failed;
-      await expect(freshPage.getByRole('heading',{name:'精选',exact:true})).toBeVisible();
+      await expect(freshPage.getByRole('heading',{name:'总览',exact:true})).toBeVisible();
     }finally{await fresh.close();}
   }finally{failing='';await context.close();}
 });
@@ -158,17 +158,17 @@ test('intent on a selected link preserves visited data and the next revisit star
   await context.route('**/*.data*',route=>route.continue());
   page.on('request',request=>{if(request.url().includes('.data'))requests.push(request.url());});
   try{
-    await page.goto(origin+'/');
-    await page.getByRole('link',{name:'模型',exact:true}).click();
+    await page.goto(origin+'/all');
+    await page.getByRole('navigation',{name:'筛选'}).getByRole('link',{name:'政策',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 policy',exact:true})).toBeVisible();
-    await page.getByRole('link',{name:'模型',exact:true}).focus();
+    await page.getByRole('navigation',{name:'筛选'}).getByRole('link',{name:'政策',exact:true}).focus();
     await page.waitForTimeout(150);
-    await page.getByRole('link',{name:'产品',exact:true}).click();
+    await page.getByRole('navigation',{name:'筛选'}).getByRole('link',{name:'公司',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 company',exact:true})).toBeVisible();
-    await page.getByRole('link',{name:'产品',exact:true}).focus();
+    await page.getByRole('navigation',{name:'筛选'}).getByRole('link',{name:'公司',exact:true}).focus();
     await page.waitForTimeout(150);
     const before=requests.length;
-    await page.getByRole('link',{name:'模型',exact:true}).click();
+    await page.getByRole('navigation',{name:'筛选'}).getByRole('link',{name:'政策',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 policy',exact:true})).toBeVisible();
     assert.deepEqual(requests.slice(before),[],'neither prefetch nor navigation may evict and reload a still-valid visited page');
   }finally{await context.close();}
@@ -229,7 +229,8 @@ test('Agent tabs finish offline with matching canonical; invalid direct tabs and
 test('phone suggestions load only on opening, use one small read, retry failures and update on reopening',async()=>{
   const context=await safari.newContext({viewport:{width:390,height:844}});const page=await context.newPage();
   try{
-    suggestionsVersion=1;await page.goto(origin+'/');
+    // Fork surface: the phone search button lives in the /all feed bar, not on the front page.
+    suggestionsVersion=1;await page.goto(origin+'/all');
     assert.equal(hits.filter(x=>x==='/api/site/search/suggestions').length,0);
     let start=hits.length;
     await page.getByRole('button',{name:'搜索',exact:true}).click();
