@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
 import type { Route } from "./+types/live";
 import { pageMeta } from "../lib/seo";
 import type { Screen } from "../components/shell/screens";
-import { LiveWall } from "../features/live/LiveWall";
+import { LiveWall, useCoarsePointer, usePosterMode } from "../features/live/LiveWall";
 import { LiveBriefPanel } from "../features/live/LiveBrief";
 import type { LiveChannel } from "../features/live/channels";
 
@@ -19,8 +18,8 @@ export function meta(_args: Route.MetaArgs) {
 
 export default function LivePage() {
   const [watching, setWatching] = useState<LiveChannel | null>(null);
-  const [params] = useSearchParams();
-  const poster = params.get("mode") === "poster";
+  const poster = usePosterMode();
+  const coarse = useCoarsePointer();
   const [dateline, setDateline] = useState("");
   useEffect(() => {
     setDateline(
@@ -39,7 +38,9 @@ export default function LivePage() {
         <h2 className="text-[15px] font-semibold">电视直播</h2>
         <span className="text-[10px] font-bold tracking-[0.28em] text-ink-3">TELEVISION — LIVE</span>
         <span className="ml-auto text-[12px] text-ink-2">
-          多窗同页 · 静音预播中，点选任意一窗全屏收听；「陪看」切换下方结论的跟随频道
+          {coarse
+            ? "第一窗静音预播中，点选任意一窗全屏收听；「陪看」切换下方结论的跟随频道"
+            : "多窗同页 · 静音预播中，点选任意一窗全屏收听；「陪看」切换下方结论的跟随频道"}
         </span>
       </div>
       <LiveWall watching={watching} onWatch={setWatching} poster={poster} />

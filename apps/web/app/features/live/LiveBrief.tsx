@@ -24,7 +24,10 @@ interface BriefEntry {
 
 const cache = new Map<BriefScope, BriefEntry>();
 const listeners = new Set<() => void>();
-let retryTimer: ReturnType<typeof setTimeout> | undefined;
+const retryTimers = new Map<BriefScope, ReturnType<typeof setTimeout>>();
+const lastFetchAt = new Map<BriefScope, number>();
+/** 卡面超过该时长视为陈旧，重新进页面时向后端要新卡（后端 5 分钟内仍复用同卡，成本一 GET）。 */
+const STALE_MS = 5 * 60_000;
 
 function notify() {
   listeners.forEach((f) => f());
@@ -33,19 +36,25 @@ function notify() {
 async function loadBrief(scope: BriefScope) {
   const hit = cache.get(scope);
   if (hit && (hit.state === "ready" || hit.state === "loading")) return;
+  lastFetchAt.set(scope, Date.now());
   cache.set(scope, { state: "loading" });
   notify();
   try {
     const res = await fetch("/api/site/live-brief" + (scope === "all" ? "" : `?channel=${scope}`));
     if (res.status === 404) {
-      // 后端生成中：空态 + 12 秒后自动重试（仅当该作用域仍被观看时由 effect 再次进入）。
+      // 后端生成中：空态 + 12 秒后真正重拉（原实现只删缓存不重拉，界面会永停在生成中）。
       cache.set(scope, { state: "generating" });
       notify();
-      clearTimeout(retryTimer);
-      retryTimer = setTimeout(() => {
-        cache.delete(scope);
-        notify();
-      }, 12000);
+      const old = retryTimers.get(scope);
+      if (old) clearTimeout(old);
+      retryTimers.set(
+        scope,
+        setTimeout(() => {
+          retryTimers.delete(scope);
+          cache.delete(scope);
+          void loadBrief(scope);
+        }, 12000),
+      );
       return;
     }
     if (!res.ok) throw new Error(String(res.status));
@@ -54,6 +63,18 @@ async function loadBrief(scope: BriefScope) {
     cache.set(scope, { state: "error" });
   }
   notify();
+}
+
+/** 陈旧检查：卡面生成时刻超过 5 分钟且距上次拉取超过 60 秒时，失效并重拉。 */
+function refreshIfStale(scope: BriefScope) {
+  const hit = cache.get(scope);
+  if (!hit || hit.state !== "ready" || !hit.data) return;
+  const age = Date.now() - new Date(hit.data.generatedAt).getTime();
+  const sinceFetch = Date.now() - (lastFetchAt.get(scope) ?? 0);
+  if (age > STALE_MS && sinceFetch > 60_000) {
+    cache.delete(scope);
+    void loadBrief(scope);
+  }
 }
 
 /** 订阅某作用域的陪看卡；挂载即按契约触发生成/复用。 */
@@ -66,6 +87,7 @@ export function useLiveBrief(scope: BriefScope): BriefEntry {
     };
   }, []);
   useEffect(() => {
+    refreshIfStale(scope);
     void loadBrief(scope);
   }, [scope]);
   return cache.get(scope) ?? { state: "loading" };
