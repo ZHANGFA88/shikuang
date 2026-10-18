@@ -1,12 +1,12 @@
 // Live brief (AI 陪看要点卡): the single public read for cards generated worker-side by
-// reports/live-brief.ts and stored per scope in settings ('live.brief'). The card a reader sees
+// publication/live-brief.ts and stored per scope in settings ('live.brief'). The card a reader sees
 // is the one generated for their viewing moment: the route reuses a card younger than
 // LIVE_BRIEF_CACHE_TTL_MS, otherwise it enqueues a worker generation job and waits briefly for
 // it (routes/site.ts). This module only reads; when no fresh card exists yet it returns the
 // latest stored one with its original generatedAt — freshness is always honest, and nothing is
 // ever synthesized at read time.
 import { sql } from "../db.ts";
-import type { LiveBrief, LiveBriefScope } from "../reports/live-brief.ts";
+import type { LiveBrief, LiveBriefScope } from "./live-brief.ts";
 
 export type { LiveBrief, LiveBriefScope };
 

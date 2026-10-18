@@ -20,7 +20,7 @@ import { registerFeedback } from "./feedback.ts";
 import { loadHot, loadStoryDetail, resolveStory } from "@aihot/backend/publication/stories";
 import { listReports, loadReport, reportNavigation, loadReportNavigation, loadReportMonth, type ReportKind } from "@aihot/backend/publication/reports";
 import { liveBriefGenerationPending, loadLiveBriefCard } from "@aihot/backend/publication/live";
-import { LIVE_BRIEF_CACHE_TTL_MS, LIVE_CHANNELS, type LiveBriefScope } from "@aihot/backend/reports/live-brief";
+import { LIVE_BRIEF_CACHE_TTL_MS, LIVE_CHANNELS, type LiveBriefScope } from "@aihot/backend/publication/live-brief";
 import { enqueue, QUEUES } from "@aihot/backend/jobs/queue";
 import { looseQuery, sendJsonWithEtag, sendProblem } from "../http/respond.ts";
 
