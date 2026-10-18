@@ -132,6 +132,21 @@ test("every table and column is used by the code that reads and writes the datab
 // import.meta.env.DEV and the like are the web build's own flags, not environment variables.
 const ENV_READ = /\b(?:process\.env|(?<!import\.meta\.)env)\.([A-Z][A-Z0-9_]+)|\b(?:process\.env|env)\[\s*["']([A-Z][A-Z0-9_]+)["']\s*\]|\b(?:str|int|bool)\(\s*"([A-Z][A-Z0-9_]+)"/g;
 const envReads = (files: Array<{ text: string }>) => new Set(files.flatMap(({ text }) => [...text.matchAll(ENV_READ)].map((m) => (m[1] ?? m[2] ?? m[3])!)));
+
+/** The scripts folder also holds the Python pushers (scripts/*.py): sources() above reads only
+ * TypeScript, so their environment reads — os.environ.get("NAME") and friends, e.g.
+ * EDGAR_CONTACT_UA in scripts/push-scrapling.py — are collected here with a Python-shaped pattern. */
+function scriptTexts(): Array<{ file: string; text: string }> {
+  const out: Array<{ file: string; text: string }> = [];
+  for (const entry of readdirSync(path.join(ROOT, "scripts"), { withFileTypes: true, recursive: true })) {
+    if (!entry.isFile()) continue;
+    const full = path.join(entry.parentPath, entry.name);
+    out.push({ file: path.relative(ROOT, full).split(path.sep).join("/"), text: readFileSync(full, "utf8") });
+  }
+  return out;
+}
+const PY_ENV_READ = /\bos\.environ\.get\(\s*["']([A-Z][A-Z0-9_]+)["']|\bos\.environ\[\s*["']([A-Z][A-Z0-9_]+)["']\s*\]|\bos\.getenv\(\s*["']([A-Z][A-Z0-9_]+)["']/g;
+const pyEnvReads = (files: Array<{ text: string }>) => files.flatMap(({ text }) => [...text.matchAll(PY_ENV_READ)].map((m) => (m[1] ?? m[2] ?? m[3])!));
 const assigned = (file: string, pattern: RegExp) => [...readFileSync(path.join(ROOT, file), "utf8").matchAll(pattern)].map((m) => m[1]!);
 
 // .env.example is the template. A deployment's own files, where the repository has them, set the rest
@@ -154,8 +169,8 @@ test("every environment variable the code reads is listed in a template, and eve
     ...tracked("*.service").flatMap((unit) => assigned(unit, /^Environment="?([A-Z][A-Z0-9_]+)=/gm)),
   ]);
   const read = envReads(production());
-  const readAnywhere = new Set([...read, ...envReads(sources("scripts")),
-    ...[...production(), ...sources("scripts")].flatMap(({ text }) => matches(text, NAMED)),
+  const readAnywhere = new Set([...read, ...envReads(sources("scripts")), ...pyEnvReads(scriptTexts()),
+    ...[...production(), ...sources("scripts"), ...scriptTexts()].flatMap(({ text }) => matches(text, NAMED)),
     ...DEPLOYMENT.flatMap((file) => matches(readFileSync(path.join(ROOT, file), "utf8"), SUBSTITUTED))]);
   assert.deepEqual([...read].filter((name) => !listed.has(name) && !preset.has(name)), [], "list it in an environment template, or stop reading it");
   assert.deepEqual([...listed].filter((name) => !readAnywhere.has(name)), [], "no code reads it: remove it from the template");
