@@ -10,6 +10,12 @@
 # v2 全程走 compose：宿主机拷贝模块文件 → 重建 worker 镜像（烘焙进容器）→ 重启 worker →
 # exec 跑迁移/回填/导出 → docker cp 取回导出文件。
 #
+# v3 修复（云机干跑 RED 结论）：
+#   ① 导出 EACCES：worker 容器以 uid 1000(node) 运行、/app 为 root 所有不可写，
+#      导出改写容器内 /tmp（export.ts 默认 --out 亦改为 /tmp），docker cp 路径同步改；
+#   ② 回填韧性：模型 429/quota 耗尽时降级为警告（WARNING 进本报告文件，已评分数
+#      据保留，export 照常出 0 行文件），不 ABORT；迁移失败、导出失败仍 ABORT。
+#
 # 本脚本只写四处，绝不碰生产面：
 #   ① 宿主机 modules/sentiment/（新增模块文件：评分、提示词、迁移、回填、导出）
 #   ② 宿主机 packages/backend/src/publication/sentiment.ts（模块 server 插口的读取层依赖；
@@ -84,14 +90,14 @@ BACKFILL_OK="${PIPESTATUS[0]}"
 echo "回填退出码：$BACKFILL_OK（非 0 表示中途失败，已评部分已入库，导出仍会生成，重跑只补未评条目）"
 echo ""
 
-# 5. 导出并取回（容器内 /app 写出，docker cp 取回宿主机仓根；
-#    先删同日旧导出，避免上次残留文件冒充本次取回成功）
+# 5. 导出并取回（容器内 /tmp 写出——worker 以 uid 1000(node) 运行，/app 为 root 所有不可写；
+#    docker cp 取回宿主机仓根；先删同日旧导出，避免上次残留文件冒充本次取回成功）
 echo "步骤 5/5 导出并取回："
 rm -f "$EXPORT_HOST"
-docker compose exec -T worker node modules/sentiment/scripts/export.ts --days 30 --out "/app/$EXPORT_NAME" 2>&1 | tee /tmp/sentiment-export.log
-docker compose cp "worker:/app/$EXPORT_NAME" "$EXPORT_HOST" 2>&1 | tee -a /tmp/sentiment-export.log
+docker compose exec -T worker node modules/sentiment/scripts/export.ts --days 30 --out "/tmp/$EXPORT_NAME" 2>&1 | tee /tmp/sentiment-export.log
+docker compose cp "worker:/tmp/$EXPORT_NAME" "$EXPORT_HOST" 2>&1 | tee -a /tmp/sentiment-export.log
 if [ -f "$EXPORT_HOST" ]; then echo "导出已取回：$EXPORT_HOST"; else
-  echo "ABORT: 导出未能取回宿主机；容器内文件仍在，可手动执行：docker compose cp worker:/app/$EXPORT_NAME ./$EXPORT_NAME"
+  echo "ABORT: 导出未能取回宿主机；容器内文件仍在，可手动执行：docker compose cp worker:/tmp/$EXPORT_NAME ./$EXPORT_NAME"
   exit 1
 fi
 echo ""

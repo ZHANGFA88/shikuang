@@ -1,7 +1,10 @@
 // Export scored sentiment rows for hand-back to the cloud sample stack (NOT a production route).
-// Usage: node modules/sentiment/scripts/export.ts [--days 30] [--out sentiment-export-<date>.json]
+// Usage: node modules/sentiment/scripts/export.ts [--days 30] [--out /tmp/sentiment-export-<date>.json]
 // Writes one JSON file: { generatedAt, windowDays, model, promptVersion, count, items: [...] }.
 // The file is the only artifact the Mac side returns; the cloud side re-imports it verbatim.
+// NOTE: the default --out is under /tmp, NOT /app — the worker container runs as
+// uid 1000 (node) and /app is root-owned (EACCES). Always keep the default (or any
+// explicit --out) on a node-writable path.
 import { writeFileSync } from "node:fs";
 import { sql, closeDb } from "@aihot/backend/db";
 
@@ -12,7 +15,7 @@ const get = (flag: string, fallback: string): string => {
 };
 const days = Number(get("--days", "30"));
 const beijingToday = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-const out = get("--out", `sentiment-export-${beijingToday}.json`);
+const out = get("--out", `/tmp/sentiment-export-${beijingToday}.json`);
 
 const rows = await sql<{
   articleId: string;

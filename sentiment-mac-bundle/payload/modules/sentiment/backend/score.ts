@@ -7,6 +7,7 @@ import { z } from "zod";
 import { sql } from "@aihot/backend/db";
 import { chatJson } from "@aihot/backend/providers/llm";
 import { completeReceipt } from "@aihot/backend/providers/receipts";
+import { ProviderRejectedError } from "@aihot/backend/providers/receipts";
 import { modelFor } from "@aihot/backend/editorial/models";
 
 const PROMPT_VERSION = "sentiment@2026-10-26";
@@ -30,12 +31,25 @@ interface ScoreCandidate {
   summary: string | null;
 }
 
+/** True when the model call failed from rate limiting or quota exhaustion (as
+ * opposed to a mechanical failure). The backfill degrades these to a warning
+ * instead of aborting; the export still runs and yields a 0-row file. */
+export function isQuotaExhaustion(e: unknown): boolean {
+  if (e instanceof ProviderRejectedError) {
+    if (e.status === 429) return true;
+    if (/quota|insufficient|exceeded/i.test(e.message)) return true;
+  }
+  return false;
+}
+
 /** Score public items that have no sentiment row yet. Ordered oldest-first so a backfill fills the
- * window from the past forward; the schedule's small limit keeps each run cheap. */
-export async function scoreItems(opts: { limit?: number; days?: number } = {}): Promise<{ scored: number; attempted: number }> {
+ * window from the past forward; the schedule's small limit keeps each run cheap.
+ * On model 429/quota exhaustion the loop stops gracefully (quotaExhausted: true);
+ * any other error propagates (mechanical failure). */
+export async function scoreItems(opts: { limit?: number; days?: number } = {}): Promise<{ scored: number; attempted: number; quotaExhausted: boolean }> {
   const limit = opts.limit ?? 20;
   const days = opts.days ?? 14;
-  if (process.env.MODEL_CALLS_ENABLED !== "true") return { scored: 0, attempted: 0 };
+  if (process.env.MODEL_CALLS_ENABLED !== "true") return { scored: 0, attempted: 0, quotaExhausted: false };
   const candidates = await sql<ScoreCandidate[]>`
     SELECT a.id, a.title, a.title_zh AS "titleZh", p.summary
       FROM publications p JOIN articles a ON a.id = p.article_id
@@ -45,23 +59,37 @@ export async function scoreItems(opts: { limit?: number; days?: number } = {}): 
      ORDER BY coalesce(p.published_at, p.timeline_at) ASC
      LIMIT ${limit}`;
   let scored = 0;
+  let quotaExhausted = false;
   for (const item of candidates) {
     const model = await modelFor("sentiment");
-    const res = await chatJson({
-      model,
-      purpose: "sentiment_score",
-      subject: `sentiment:${item.id}`,
-      promptVersion: PROMPT_VERSION,
-      system: SYSTEM,
-      user: JSON.stringify({ title: item.title, titleZh: item.titleZh, summary: (item.summary ?? "").slice(0, 400) }),
-      schema: Output,
-      temperature: 0.2,
-      maxTokens: 600,
-      timeoutMs: 60_000,
-    });
-    if (res.receiptId !== null) {
+    let res: { data: z.infer<typeof Output>; receiptId: number | null };
+    try {
+      res = await chatJson({
+        model,
+        purpose: "sentiment_score",
+        subject: `sentiment:${item.id}`,
+        promptVersion: PROMPT_VERSION,
+        system: SYSTEM,
+        user: JSON.stringify({ title: item.title, titleZh: item.titleZh, summary: (item.summary ?? "").slice(0, 400) }),
+        schema: Output,
+        temperature: 0.2,
+        maxTokens: 600,
+        timeoutMs: 60_000,
+      });
+    } catch (e) {
+      if (isQuotaExhaustion(e)) {
+        // Further calls would fail the same way; stop gracefully. Already-scored
+        // items stay in the DB, the export still runs, and the caller reports
+        // the warning (it lands in the Mac backfill report file).
+        quotaExhausted = true;
+        break;
+      }
+      throw e;
+    }
+    const receiptId = res.receiptId;
+    if (receiptId !== null) {
       await sql.begin(async (tx) => {
-        await completeReceipt(tx, res.receiptId);
+        await completeReceipt(tx, receiptId);
       });
     }
     // Spec §1: never claim full certainty; round to two decimals and cap at 0.99.
@@ -72,7 +100,7 @@ export async function scoreItems(opts: { limit?: number; days?: number } = {}): 
               ON CONFLICT (article_id) DO NOTHING`;
     scored += 1;
   }
-  return { scored, attempted: candidates.length };
+  return { scored, attempted: candidates.length, quotaExhausted };
 }
 
 /** The module schedule's run: only unscored recent public items, small batch. */
