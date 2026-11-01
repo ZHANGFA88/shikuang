@@ -65,7 +65,7 @@ export default function AssistantPage() {
       });
       if (r.status === 429) {
         const d = await r.json().catch(() => ({}));
-        const kind = (d as { error?: string }).error;
+        const kind = (d as { code?: string; error?: string }).code ?? (d as { error?: string }).error;
         setMsgs((m) => [...m, {
           role: "a", text: "",
           err: kind === "session_limit" ? "本轮会话提问次数已达上限，请开启新会话继续。"
