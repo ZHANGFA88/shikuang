@@ -58,6 +58,12 @@ async function embedBatch(texts: string[], subject: string): Promise<{ vectors: 
   }
 }
 
+/** Embed one text (e.g. a reader's question) for recall. Paid like every other model call. */
+export async function embedText(text: string, subject: string): Promise<number[]> {
+  const { vectors } = await embedBatch([text.slice(0, 2000)], subject);
+  return vectors[0]!;
+}
+
 // array_send avoids formatting each float as decimal on the database. Its one-dimensional real[]
 // payload has a 20-byte header, then a four-byte length and a float4 per coordinate. Keep shapes
 // rejected by the text-array reader invalid so the usual replacement path still handles them.

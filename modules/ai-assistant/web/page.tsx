@@ -70,6 +70,7 @@ export default function AssistantPage() {
           role: "a", text: "",
           err: kind === "session_limit" ? "本轮会话提问次数已达上限，请开启新会话继续。"
             : kind === "session_full" ? "当前会话已满，请开启新会话继续。"
+            : kind === "upstream_quota_exhausted" ? "上游模型月度配额耗尽，预计 11 月 19 日恢复（非每日额度）。"
             : "今日问答额度已用完，明日再试。",
         }]);
         return;

@@ -40,8 +40,12 @@ export const aiAssistantServer = defineServerModule({
         return reply.header("cache-control", "no-store").send(data);
       } catch (e) {
         const err = e as Error & { status?: number; code?: string };
-        const status = err.status ?? 502;
-        const code = err.code ?? (status === 429 ? "rate_limited" : "assistant_failed");
+        const msg = err.message ?? "";
+        // 上游 LLM 月度配额耗尽：如实透出，不得伪装成"今日额度"
+        const upstreamQuota = /insufficient_quota|quota has been exhausted/i.test(msg);
+        const status = upstreamQuota ? 429 : (err.status ?? 502);
+        const code = upstreamQuota ? "upstream_quota_exhausted"
+          : (err.code ?? (status === 429 ? "rate_limited" : "assistant_failed"));
         return reply.status(status).send({
           type: status === 429 ? "/problems/assistant-capacity" : "/problems/assistant-failed",
           title: status === 429 ? "Assistant capacity reached" : "Assistant failed",
